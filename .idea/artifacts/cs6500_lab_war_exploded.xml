@@ -1,0 +1,13 @@
+<component name="ArtifactManager">
+  <artifact type="exploded-war" name="cs6500-lab:war exploded">
+    <output-path>$PROJECT_DIR$/out/artifacts/cs6500_lab_war_exploded</output-path>
+    <root id="root">
+      <element id="javaee-facet-resources" facet="cs6500-lab/web/Web" />
+      <element id="directory" name="WEB-INF">
+        <element id="directory" name="classes">
+          <element id="module-output" name="cs6500-lab" />
+        </element>
+      </element>
+    </root>
+  </artifact>
+</component>

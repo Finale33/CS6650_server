@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="war" name="cs6500_lab:war">
+    <output-path>$PROJECT_DIR$/out/artifacts/cs6500_lab_war</output-path>
+    <root id="archive" name="cs6500_lab_war.war">
+      <element id="artifact" artifact-name="cs6500-lab:war exploded" />
+    </root>
+  </artifact>
+</component>
