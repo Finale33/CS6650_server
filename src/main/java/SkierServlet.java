@@ -8,9 +8,19 @@ import javax.servlet.http.*;
 import javax.servlet.annotation.*;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+
+import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.MessageProperties;
+import org.apache.commons.pool2.ObjectPool;
+import org.apache.commons.pool2.impl.GenericObjectPool;
 
 @WebServlet(name = "SkierServlet", value = "/skiers")
 public class SkierServlet extends HttpServlet {
+
+    private String queueName = "myQueue";
+    private ObjectPool<Channel> channelPool;
+
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         String urlPath = req.getPathInfo();
@@ -81,6 +91,7 @@ public class SkierServlet extends HttpServlet {
 
         String[] urlParts = urlPath.split("/");
 
+        // validate url first
         if (!isLongURL(urlParts)) {
             res.setStatus(HttpServletResponse.SC_NOT_FOUND);
             Message response = new Message("resource not found");
@@ -89,26 +100,69 @@ public class SkierServlet extends HttpServlet {
             return;
         } else {
             res.setStatus(HttpServletResponse.SC_CREATED);
-            // TODO: process url params in `urlParts` and process request body
+            // process url params in `urlParts` and process request body
             try {
-                // read request body
+                // validate json payload and send to message queue
                 BufferedReader reader = req.getReader();
                 StringBuilder sb = new StringBuilder();
                 String line;
                 while ((line = reader.readLine()) != null) {
                     sb.append(line);
                 }
-                System.out.println(sb.toString());
+                String message = sb.toString();
+                System.out.println(message);
+                if (isPayloadValid(message)) {
+                    System.out.println("about to send out messages");
+                    // append the skier id
+                    sb.append(urlParts[7]);
+                    String cur = sb.toString();
+                    Channel channel = null;
+                    try{
+                        channel = channelPool.borrowObject();
+                        channel.queueDeclare(queueName, true, false, false, null);
+                        channel.basicPublish("", queueName, MessageProperties.PERSISTENT_TEXT_PLAIN, cur.getBytes(StandardCharsets.UTF_8));
+                        System.out.println(" [x] Sent '" + cur + "'");
+                    }catch (IOException e) {
+                        throw e;
+                    } catch (Exception e) {
+                        throw new RuntimeException("Unable to borrow channel from pool" + e.toString());
+                    }finally {
+                        try {
+                            if (channel != null) {
+                                channelPool.returnObject(channel);
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                } else {
+                    res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                    Message response = new Message("invalid input!");
+                    res.getOutputStream().print(gson.toJson(response));
+                    res.getOutputStream().flush();
+                    return;
+                }
             } catch (Exception e) {
+                e.printStackTrace();
                 throw new ServletException();
             }
         }
     }
 
+    // {"time":394,"liftID":13,"waitTime":9}
+    private boolean isPayloadValid (String payload) {
+        String[] payloads = payload.split(",");
+        if (payloads.length != 3)  return false;
+        String[] payload0 = payloads[0].split(":");
+        String[] payload1 = payloads[1].split(":");
+        String[] payload2 = payloads[2].split(":");
+        return payload0[0].contains("\"time\"") && isInteger(payload0[1]) && payload1[0].contains("\"liftID\"") && isInteger(payload1[1]) && payload2[0].contains("\"waitTime\"") && isInteger(payload2[1].substring(0, payload2[1].length() - 1)) && payload2[1].endsWith("}");
+    }
+
     private boolean isUrlValid(String[] urlPath, String queryString) {
-        // TODO: validate the request url path according to the API spec
+        // validate the request url path according to the API spec
         // urlPath  = "/1/seasons/2019/day/1/skier/123"
-        // urlParts = [, 1, seasons, 2019, day, 1, skier, 123
+        // urlParts = [, 1, seasons, 2019, day, 1, skier, 123]
         return isLongURL(urlPath) || isShortURL(urlPath, queryString);
     }
 
@@ -145,5 +199,15 @@ public class SkierServlet extends HttpServlet {
         }
         // only got here if we didn't return false
         return true;
+    }
+
+    @Override
+    public void init(ServletConfig config) throws ServletException {
+        super.init(config);
+        try {
+            this.channelPool = new GenericObjectPool<>(new ChannelFactory());
+        }catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
