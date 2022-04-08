@@ -9,22 +9,33 @@ import javax.servlet.annotation.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.MessageProperties;
 import org.apache.commons.pool2.ObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPool;
+import org.apache.commons.lang3.concurrent.EventCountCircuitBreaker;
 
 @WebServlet(name = "SkierServlet", value = "/skiers")
 public class SkierServlet extends HttpServlet {
 
     private String queueName = "myQueue";
     private ObjectPool<Channel> channelPool;
+    private EventCountCircuitBreaker circuitBreaker;
+    private static final int BACKOFF_UPPER = 800;
+    private static final int BACKOFF_LOWER = 600;
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         String urlPath = req.getPathInfo();
         res.setContentType("application/json");
+        // adding in circuit breaker
+        if(!circuitBreaker.incrementAndCheckState()) {
+            res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            res.getWriter().write("Too many request sent per second");
+            return;
+        }
         Gson gson = new Gson();
         String queryString = req.getQueryString();
 
@@ -76,6 +87,11 @@ public class SkierServlet extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         res.setContentType("application/json");
+        if(!circuitBreaker.incrementAndCheckState()) {
+            res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            res.getWriter().write("Too many request sent per second");
+            return;
+        }
         String urlPath = req.getPathInfo();
         Gson gson = new Gson();
         System.out.println(urlPath);
@@ -113,8 +129,14 @@ public class SkierServlet extends HttpServlet {
                 System.out.println(message);
                 if (isPayloadValid(message)) {
                     System.out.println("about to send out messages");
-                    // append the skier id
+                    // append the skier id and day id
                     sb.append(urlParts[7]);
+                    sb.append(",");
+                    sb.append(urlParts[5]);
+                    sb.append(",");
+                    sb.append(urlParts[3]);
+                    sb.append(",");
+                    sb.append(urlParts[1]);
                     String cur = sb.toString();
                     Channel channel = null;
                     try{
@@ -204,6 +226,7 @@ public class SkierServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        circuitBreaker = new EventCountCircuitBreaker(BACKOFF_UPPER, 1, TimeUnit.SECONDS, BACKOFF_LOWER);
         try {
             this.channelPool = new GenericObjectPool<>(new ChannelFactory());
         }catch (Exception e) {
@@ -211,3 +234,4 @@ public class SkierServlet extends HttpServlet {
         }
     }
 }
+
