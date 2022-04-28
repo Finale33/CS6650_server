@@ -1,11 +1,13 @@
 import Entities.*;
 import com.google.gson.Gson;
+import redis.clients.jedis.Jedis;
 
 import javax.servlet.*;
 import javax.servlet.http.*;
 import javax.servlet.annotation.*;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 @WebServlet(name = "ResortServlet", value = "/resorts")
 public class ResortServlet extends HttpServlet {
@@ -45,11 +47,16 @@ public class ResortServlet extends HttpServlet {
             // TODO: process url params in `urlParts`
             if (isLongURL(urlParts)) {
                 try{
-                    NumSkiers[] response = new NumSkiers[1];
-                    NumSkiers numSkiers = new NumSkiers("peak", 300);
-                    response[0] = numSkiers;
-                    res.getOutputStream().print(gson.toJson(response));
-                    res.getOutputStream().flush();
+                    Jedis jedis = new Jedis("172.31.26.108", 6379); // consumer instance private ip: 172.31.26.108
+                    System.out.println("Successfully connected to Redis...");
+                    String key = "skier-num"+urlParts[5];
+                    System.out.println(key);
+//                    if (jedis.exists(key.getBytes(StandardCharsets.UTF_8))) {
+//                        res.getWriter().write("{\n" +
+//                                "  \"Time\": \"237\",\n" +
+//                                "  \"NumOfSkiers\": " + String.valueOf(jedis.llen(key)) +
+//                                "\n}");
+//                    }
                 } catch (Exception e) {
                     throw new ServletException();
                 }

@@ -1,6 +1,5 @@
+import Entities.LiftRideLocal;
 import Entities.Message;
-import Entities.Resort;
-import Entities.Resorts;
 import com.google.gson.Gson;
 
 import javax.servlet.*;
@@ -9,89 +8,105 @@ import javax.servlet.annotation.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.concurrent.TimeoutException;
 
-import com.rabbitmq.client.Channel;
-import com.rabbitmq.client.MessageProperties;
-import org.apache.commons.pool2.ObjectPool;
-import org.apache.commons.pool2.impl.GenericObjectPool;
-import org.apache.commons.lang3.concurrent.EventCountCircuitBreaker;
+import redis.clients.jedis.Jedis;
 
 @WebServlet(name = "SkierServlet", value = "/skiers")
 public class SkierServlet extends HttpServlet {
 
-    private String queueName = "myQueue";
-    private ObjectPool<Channel> channelPool;
-    private EventCountCircuitBreaker circuitBreaker;
-    private static final int BACKOFF_UPPER = 800;
-    private static final int BACKOFF_LOWER = 600;
+    private Publisher publisherToSkierService;
+    private Publisher publisherToResortService;
+    private final String SKIER_QUEUE_NAME = "skierServiceQueue";
+    private final String RESORT_QUEUE_NAME = "resortServiceQueue";
+
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
+        res.setContentType("application/json"); // the difference between application/json and text/plain ?
         String urlPath = req.getPathInfo();
-        res.setContentType("application/json");
-        // adding in circuit breaker
-        if(!circuitBreaker.incrementAndCheckState()) {
-            res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-            res.getWriter().write("Too many request sent per second");
-            return;
-        }
-        Gson gson = new Gson();
-        String queryString = req.getQueryString();
 
         // check we have a URL!
-        if (urlPath == null || urlPath.length() == 0) {
+        if (urlPath == null || urlPath.isEmpty()) {
             res.setStatus(HttpServletResponse.SC_NOT_FOUND);
-            Message response = new Message("resource not found");
-            res.getOutputStream().print(gson.toJson(response));
-            res.getOutputStream().flush();
+            res.getWriter().write("missing parameters");
             return;
         }
 
         String[] urlParts = urlPath.split("/");
-
-        if (!isUrlValid(urlParts, queryString)) {
-            res.setStatus(HttpServletResponse.SC_NOT_FOUND);
-            Message response = new Message("resource not found");
-            res.getOutputStream().print(gson.toJson(response));
-            res.getOutputStream().flush();
-            return;
-        } else {
-            res.setStatus(HttpServletResponse.SC_OK);
-            // do any sophisticated processing with urlParts which contains all the url params
-            // TODO: process url params in `urlParts`
-            if (isLongURL(urlParts)) {
-                try {
-                    int response = 111;
-                    res.getOutputStream().print(gson.toJson(response));
-                    res.getOutputStream().flush();
-                } catch (Exception e) {
-                    throw new ServletException();
+        // and now validate url path and return the response status code
+        // (and maybe also some value if input is valid)
+        for(int i = 0; i < urlParts.length; i++) {
+            if(i == 3 || i == 5 || i == 7) System.out.println(urlParts[i]);
+        }
+        try{
+            Jedis jedis = new Jedis("localhost", 6379); // consumer instance private ip: 172.31.26.108
+            System.out.println("Successfully connected to Redis...");
+            if (!isUrlValidGet(urlParts)) {
+                res.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                res.getWriter().write("{\n" +
+                        "  \"message\": \"invalid get url\"\n" +
+                        "}");
+            } else {
+                res.setStatus(HttpServletResponse.SC_OK);
+                // do any sophisticated processing with urlParts which contains all the url params
+                // TODO: process url params in `urlParts`
+                if(validateGet1(urlParts)){
+                    int totalVertical = 0;
+                    for(int i = 1; i <= 90; i++){
+                        String key = "vertical-num"+urlParts[1]+"/"+ i;
+                        if (jedis.exists(key.getBytes(StandardCharsets.UTF_8))) {
+                            List<String> list = jedis.lrange( key, 0, -1 );
+                            for(String s : list){
+                                totalVertical += Integer.valueOf(s);
+                            }
+                        }
+                    }
+                    res.getWriter().write("{\n" +
+                            "  \"seasonID\": \"Mission Ridge\",\n" +
+                            "  \"totalVert\": " + String.valueOf(totalVertical*10) +
+                            "\n}");
+                }else if(validateGet2(urlParts)){
+                    int totalVertical = 0;
+                    String key = "vertical-num"+urlParts[7]+"/"+urlParts[5];
+                    if (jedis.exists(key.getBytes(StandardCharsets.UTF_8))) {
+                        totalVertical = Integer.parseInt(jedis.get(key))*10;
+                        res.getWriter().write(String.valueOf(totalVertical));
+                    }
                 }
             }
-            else {
-                try{
-                    Resort[] response = new Resort[1];
-                    Resort resort = new Resort("123", 5);
-                    response[0] = resort;
-                    Resorts resorts = new Resorts(response);
-                    res.getOutputStream().print(gson.toJson(resorts));
-                    res.getOutputStream().flush();
-                } catch (Exception e) {
-                    throw new ServletException();
-                }
-            }
+        }catch(Exception e){
+            System.out.println(e);
         }
     }
+
+    private boolean validateGet1(String[] urlPath) {
+        if(urlPath != null) {
+            if (urlPath.length == 3) {
+                return isInteger(urlPath[1])
+                        && "vertical".equals(urlPath[2]);
+            }
+        }
+        return false;
+    }
+
+
+    private boolean validateGet2(String[] urlPath) {
+        if (urlPath.length != 8) return false;
+        if (urlPath[0].isEmpty() && isInteger(urlPath[1]) && urlPath[2].equals("seasons") && isInteger(urlPath[3]) && urlPath[4].equals("days") && isInteger(urlPath[5]) && urlPath[6].equals("skiers") && isInteger(urlPath[7])) {
+            return true;
+        }
+        return false;
+    }
+    private boolean isUrlValidGet(String[] urlPath) {
+        return validateGet1(urlPath) || validateGet2(urlPath);
+    }
+
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse res) throws ServletException, IOException {
         res.setContentType("application/json");
-        if(!circuitBreaker.incrementAndCheckState()) {
-            res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-            res.getWriter().write("Too many request sent per second");
-            return;
-        }
         String urlPath = req.getPathInfo();
         Gson gson = new Gson();
         System.out.println(urlPath);
@@ -126,44 +141,17 @@ public class SkierServlet extends HttpServlet {
                     sb.append(line);
                 }
                 String message = sb.toString();
-                System.out.println(message);
-                if (isPayloadValid(message)) {
-                    System.out.println("about to send out messages");
-                    // append the skier id and day id
-                    sb.append(urlParts[7]);
-                    sb.append(",");
-                    sb.append(urlParts[5]);
-                    sb.append(",");
-                    sb.append(urlParts[3]);
-                    sb.append(",");
-                    sb.append(urlParts[1]);
-                    String cur = sb.toString();
-                    Channel channel = null;
-                    try{
-                        channel = channelPool.borrowObject();
-                        channel.queueDeclare(queueName, true, false, false, null);
-                        channel.basicPublish("", queueName, MessageProperties.PERSISTENT_TEXT_PLAIN, cur.getBytes(StandardCharsets.UTF_8));
-                        System.out.println(" [x] Sent '" + cur + "'");
-                    }catch (IOException e) {
-                        throw e;
-                    } catch (Exception e) {
-                        throw new RuntimeException("Unable to borrow channel from pool" + e.toString());
-                    }finally {
-                        try {
-                            if (channel != null) {
-                                channelPool.returnObject(channel);
-                            }
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    }
-                } else {
-                    res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-                    Message response = new Message("invalid input!");
-                    res.getOutputStream().print(gson.toJson(response));
-                    res.getOutputStream().flush();
-                    return;
-                }
+                String[] queries = message.split(",");
+                String liftID = queries[1].split(":")[1];
+                String time = queries[0].split(":")[1];
+                String resortID = urlParts[1];
+                String dayID = urlParts[5];
+                String skierID = urlParts[7];
+                String seasonID = urlParts[3];
+                LiftRideLocal liftRide = new LiftRideLocal(resortID, dayID, skierID, time, liftID, seasonID);
+                System.out.println("about to send out messages");
+                publisherToSkierService.send(liftRide);
+                publisherToResortService.send(liftRide);
             } catch (Exception e) {
                 e.printStackTrace();
                 throw new ServletException();
@@ -171,22 +159,15 @@ public class SkierServlet extends HttpServlet {
         }
     }
 
-    // {"time":394,"liftID":13,"waitTime":9}
-    private boolean isPayloadValid (String payload) {
-        String[] payloads = payload.split(",");
-        if (payloads.length != 3)  return false;
-        String[] payload0 = payloads[0].split(":");
-        String[] payload1 = payloads[1].split(":");
-        String[] payload2 = payloads[2].split(":");
-        return payload0[0].contains("\"time\"") && isInteger(payload0[1]) && payload1[0].contains("\"liftID\"") && isInteger(payload1[1]) && payload2[0].contains("\"waitTime\"") && isInteger(payload2[1].substring(0, payload2[1].length() - 1)) && payload2[1].endsWith("}");
-    }
-
-    private boolean isUrlValid(String[] urlPath, String queryString) {
-        // validate the request url path according to the API spec
-        // urlPath  = "/1/seasons/2019/day/1/skier/123"
-        // urlParts = [, 1, seasons, 2019, day, 1, skier, 123]
-        return isLongURL(urlPath) || isShortURL(urlPath, queryString);
-    }
+//    // {"time":394,"liftID":13,"waitTime":9}
+//    private boolean isPayloadValid (String payload) {
+//        String[] payloads = payload.split(",");
+//        if (payloads.length != 3)  return false;
+//        String[] payload0 = payloads[0].split(":");
+//        String[] payload1 = payloads[1].split(":");
+//        String[] payload2 = payloads[2].split(":");
+//        return payload0[0].contains("\"time\"") && isInteger(payload0[1]) && payload1[0].contains("\"liftID\"") && isInteger(payload1[1]) && payload2[0].contains("\"waitTime\"") && isInteger(payload2[1].substring(0, payload2[1].length() - 1)) && payload2[1].endsWith("}");
+//    }
 
     private boolean isShortURL(String[] urlPath, String queryString) {
         if (urlPath.length != 3) return false;
@@ -226,10 +207,10 @@ public class SkierServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        circuitBreaker = new EventCountCircuitBreaker(BACKOFF_UPPER, 1, TimeUnit.SECONDS, BACKOFF_LOWER);
         try {
-            this.channelPool = new GenericObjectPool<>(new ChannelFactory());
-        }catch (Exception e) {
+            publisherToSkierService = new Publisher(SKIER_QUEUE_NAME);
+            publisherToResortService = new Publisher(RESORT_QUEUE_NAME);
+        } catch (IOException | TimeoutException e) {
             e.printStackTrace();
         }
     }

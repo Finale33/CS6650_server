@@ -13,9 +13,9 @@ public class ChannelFactory extends BasePooledObjectFactory<Channel> {
 
     public ChannelFactory() {
         this.factory = new ConnectionFactory();
-        factory.setHost("18.237.150.254");
-        factory.setUsername("radmin");
-        factory.setPassword("radmin");
+        factory.setHost("54.187.241.134");
+        factory.setUsername("guest");
+        factory.setPassword("guest");
         try  {
             this.connection = factory.newConnection();
         } catch (Exception e) {
@@ -36,5 +36,4 @@ public class ChannelFactory extends BasePooledObjectFactory<Channel> {
         return new DefaultPooledObject<>(channel);
     }
 }
-
 
