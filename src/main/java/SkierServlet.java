@@ -41,7 +41,7 @@ public class SkierServlet extends HttpServlet {
             if(i == 3 || i == 5 || i == 7) System.out.println(urlParts[i]);
         }
         try{
-            Jedis jedis = new Jedis("localhost", 6379); // consumer instance private ip: 172.31.26.108
+            Jedis jedis = new Jedis("52.35.100.207", 6379); // consumer instance private ip: 172.31.26.108
             System.out.println("Successfully connected to Redis...");
             if (!isUrlValidGet(urlParts)) {
                 res.setStatus(HttpServletResponse.SC_NOT_FOUND);

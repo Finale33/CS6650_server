@@ -47,7 +47,7 @@ public class ResortServlet extends HttpServlet {
             // TODO: process url params in `urlParts`
             if (isLongURL(urlParts)) {
                 try{
-                    Jedis jedis = new Jedis("localhost", 6379); // consumer instance private ip: 172.31.26.108
+                    Jedis jedis = new Jedis("35.88.188.227", 6379); // consumer instance private ip: 172.31.26.108
                     System.out.println("Successfully connected to Redis...");
                     String key = "skier-num"+'/'+urlParts[1] + '/' + urlParts[3]+"/"+urlParts[5];
                     System.out.println(key);
