@@ -71,7 +71,11 @@ public class SkierServlet extends HttpServlet {
                     int totalVertical = 0;
                     String key = "vertical-num"+urlParts[7]+"/"+urlParts[5];
                     if (jedis.exists(key.getBytes(StandardCharsets.UTF_8))) {
-                        totalVertical = Integer.parseInt(jedis.get(key))*10;
+                        List<String> list = jedis.lrange( key, 0, -1 );
+                        for(String s : list){
+                            totalVertical += Integer.valueOf(s);
+                        }
+                        totalVertical *= 10;
                         res.getWriter().write(String.valueOf(totalVertical));
                     }
                 }

@@ -47,16 +47,17 @@ public class ResortServlet extends HttpServlet {
             // TODO: process url params in `urlParts`
             if (isLongURL(urlParts)) {
                 try{
-                    Jedis jedis = new Jedis("172.31.26.108", 6379); // consumer instance private ip: 172.31.26.108
+                    Jedis jedis = new Jedis("localhost", 6379); // consumer instance private ip: 172.31.26.108
                     System.out.println("Successfully connected to Redis...");
-                    String key = "skier-num"+urlParts[5];
+                    String key = "skier-num"+'/'+urlParts[1] + '/' + urlParts[3]+"/"+urlParts[5];
                     System.out.println(key);
-//                    if (jedis.exists(key.getBytes(StandardCharsets.UTF_8))) {
-//                        res.getWriter().write("{\n" +
-//                                "  \"Time\": \"237\",\n" +
-//                                "  \"NumOfSkiers\": " + String.valueOf(jedis.llen(key)) +
-//                                "\n}");
-//                    }
+                    System.out.println("result: "+jedis.hlen(key));
+                    if (jedis.exists(key.getBytes(StandardCharsets.UTF_8))) {
+                        res.getWriter().write("{\n" +
+                                "  \"Time\": \"237\",\n" +
+                                "  \"NumOfSkiers\": " + jedis.hlen(key) +
+                                "\n}");
+                    }
                 } catch (Exception e) {
                     throw new ServletException();
                 }
